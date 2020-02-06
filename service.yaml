@@ -328,7 +328,7 @@ Resources:
                 Owner: !Ref GitHubOwner
                 Repo: !Ref GitHubRepo
                 Branch: !Ref GitHubRepoBranch
-                OAuthToken: "{{resolve:secretsmanager:MYPassword:Password}}"
+                OAuthToken: "{{resolve:secretsmanager:MYPassword/Password}}"
                 PollForSourceChanges: false
               OutputArtifacts:
                 - Name: InfraSource
