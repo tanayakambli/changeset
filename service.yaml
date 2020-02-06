@@ -268,7 +268,7 @@ Resources:
       Name: PHI-Free-Reference-Data-RDS-Snapshot-Transient-Deploy
       ServiceRole: !Ref PHIFreeRDSSnapshotRolePerRegion
       Source:
-        BuildSpec: CodeBuild/buildspec-phi-free-rds-snapshot-deploy.yml
+       # BuildSpec: CodeBuild/buildspec-phi-free-rds-snapshot-deploy.yml
         Type: CODEPIPELINE
       Tags:
       #  - Key: Owner
@@ -328,7 +328,7 @@ Resources:
                 Owner: !Ref GitHubOwner
                 Repo: !Ref GitHubRepo
                 Branch: !Ref GitHubRepoBranch
-                OAuthToken: "{{resolve:secretsmanager:Broadwing/github-pillpack-deploy-bot-token}}"
+                OAuthToken: "{{resolve:secretsmanager:MYPassword/Password}}"
                 PollForSourceChanges: false
               OutputArtifacts:
                 - Name: InfraSource
