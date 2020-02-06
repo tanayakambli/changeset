@@ -1,0 +1,406 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  CodePipeline to run for creating a PHI-Free RDS snapshot.
+
+Parameters:
+
+  #Owner:
+  #  Default: Platform/Infra Team
+  #  Description: Owner tag for resources
+  #  Type: String
+
+  GitHubOwner:
+    Type: String
+    Default: PillPack
+
+  GitHubRepo:
+    Type: String
+    Default: infrastructure
+
+  GitHubRepoBranch:
+    Default: master
+    Description: The branch for the GitHub repository
+    Type: String
+
+Resources:
+  # TODO decompose this role into a separate role for the pipeline and the codebuild
+  PHIFreeRDSSnapshotRolePerRegion:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join
+        - '-'
+        - - 'PHI-Free-Reference-Data-Snapshot-Pipe'
+          - !Ref AWS::Region
+
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "codepipeline.amazonaws.com"
+                - "codebuild.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+        - arn:aws:iam::aws:policy/AmazonElastiCacheFullAccess  # TODO codebuild-specific
+
+      Policies:
+        - PolicyName: "phi-free-rds-ss-pipeline-s3"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "s3:Get*"
+                  - "s3:Put*"
+                  - "s3:List*"
+                Resource:
+                  - "arn:aws:s3:::pillpack-phi-free-*"
+                  - "arn:aws:s3:::pillpack-phi-free-*/*"
+        - PolicyName: "phi-free-rds-ss-pipeline-codebuild"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "codebuild:*"
+                  - "codepipeline:*"
+                Resource:
+                  - "*"
+        - PolicyName: "phi-free-rds-ss-pipeline-codebuild-logs"  # TODO codebuild-specific ?
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource:
+                  - !Join
+                    - ':'
+                    - - "arn:aws:logs:*"
+                      - !Ref AWS::AccountId
+                      - "log-group:/aws/codebuild/*"
+                  - !Join
+                    - ':'
+                    - - "arn:aws:logs:*"
+                      - !Ref AWS::AccountId
+                      - "log-group:/aws/codebuild/*:*"
+        - PolicyName: "phi-free-rds-ss-pipeline-ec2"  # TODO codebuild-specific ?
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "ec2:*"
+                Resource:
+                  - "*"
+        - PolicyName: "phi-free-rds-ss-pipeline-secrets-manager"  # TODO codebuild-specific subset ?
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "secretsmanager:*"
+                Resource:
+                  - !Join
+                    - ''
+                    - - "arn:aws:secretsmanager:*:"
+                      - !Ref AWS::AccountId
+                      - ":secret:Broadwing/*"
+              - Effect: "Allow"
+                Action:
+                  - "ssm:PutParameter"
+                  - "ssm:DeleteParameter"
+                  - "ssm:GetParameterHistory"
+                  - "ssm:GetParametersByPath"
+                  - "ssm:GetParameters"
+                  - "ssm:GetParameter"
+                  - "ssm:AddTagsToResource"
+                  - "ssm:DeleteParameters"
+                  - "ssm:DescribeParameters"
+                Resource:
+                  - !Join
+                    - ''
+                    - - "arn:aws:ssm:*:"
+                      - !Ref AWS::AccountId
+                      - ":parameter/Broadwing*"
+              - Effect: "Allow"
+                Action:
+                  - "secretsmanager:ListSecrets"
+                  - "ssm:DescribeParameters"
+                Resource:
+                  - "*"
+
+        - PolicyName: "phi-free-rds-ss-pipeline-elasticloadbalancing"  # TODO codebuild-specific ?
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "elasticloadbalancing:*"
+                Resource:
+                  - !Join
+                    - ''
+                    - - "arn:aws:elasticloadbalancing:*:"
+                      - !Ref AWS::AccountId
+                      - ":loadbalancer/*"
+              - Effect: "Allow"
+                Action:
+                  - "elasticloadbalancing:DescribeLoadBalancers"
+                Resource:
+                  - "*"
+        - PolicyName: "phi-free-rds-ss-pipeline-cftemplates"  # TODO codebuild-specific ?
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "rds:*"
+                  - "route53:*"
+                  - "cloudformation:*"
+                  - "s3:*"
+                  - "sqs:*"
+                Resource:
+                  - "*"
+        - PolicyName: "phi-free-rds-ss-pipeline-iam-roles"  # TODO codebuild-specific ?
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "iam:*"
+                Resource:
+                  - !Join
+                    - ':'
+                    - - "arn:aws:iam"
+                      - ''  # global region
+                      - !Ref AWS::AccountId
+                      - 'role/*'  # TODO restrict to stack prefix ?
+                  - !Join
+                    - ':'
+                    - - "arn:aws:iam"
+                      - ''  # global region
+                      - !Ref AWS::AccountId
+                      - 'instance-profile/*'  # TODO restrict to stack prefix ?
+        - PolicyName: "phi-free-rds-ss-pipeline-lambda"  # TODO codebuild-specific
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "lambda:*"
+                Resource:
+                  - "*"
+        - PolicyName: "phi-free-rds-ss-pipeline-elasticache"  # TODO codebuild-specific
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "elasticache:*"
+                Resource:
+                  - "*"
+        - PolicyName: "phi-free-rds-ss-pipeline-provisioning"  # TODO codebuild-specific
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "elasticloadbalancing:*"
+                  - "autoscaling:*"
+                Resource:
+                  - "*"
+        - PolicyName: "phi-free-rds-ss-pipeline-ssm"  # TODO codebuild-specific
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "ssm:*"
+                Resource:
+                  - "*"
+        - PolicyName: "phi-free-rds-ss-pipeline-kms"  # TODO codebuild-specific
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "kms:Create*"
+                  - "kms:Describe*"
+                  - "kms:Enable*"
+                  - "kms:List*"
+                  - "kms:Put*"
+                  - "kms:Update*"
+                  - "kms:Revoke*"
+                  - "kms:Disable*"
+                  - "kms:Get*"
+                  - "kms:Delete*"
+                  - "kms:ScheduleKeyDeletion"
+                  - "kms:CancelKeyDeletion"
+                  - "kms:TagResource"
+                Resource:
+                  - "*"
+
+  PHIFreeReferenceDataTransientDeploy:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Artifacts:
+        Type: CODEPIPELINE
+      Description: >
+        Deploy the Broadwing infrastructure to a transient
+        CloudFormation stack, creating and destroying an entire VPC,
+        so that we can download and import a reference data dump into RDS.
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: !Join
+          - '.'
+          - - !Ref AWS::AccountId
+            - "dkr.ecr"
+            - !Ref AWS::Region
+            - "amazonaws.com/codebuild-python-37:latest"  # TODO External Dependency
+        PrivilegedMode: false
+        Type: LINUX_CONTAINER
+      Name: PHI-Free-Reference-Data-RDS-Snapshot-Transient-Deploy
+      ServiceRole: !Ref PHIFreeRDSSnapshotRolePerRegion
+      Source:
+        BuildSpec: CodeBuild/buildspec-phi-free-rds-snapshot-deploy.yml
+        Type: CODEPIPELINE
+      Tags:
+      #  - Key: Owner
+      #    Value: !Ref Owner
+        - Key: Project
+          Value: PHI-Free
+        - Key: Team
+          Value: Infrastructure
+      TimeoutInMinutes: 240
+
+  PHIFreeInfrastructureSourceS3:
+    Type: AWS::S3::Bucket
+    Properties:
+      AccessControl: Private
+      # Include the account ID and the region as components in the bucket
+      # name, so that this stack can be safely deployed into multiple
+      # accounts and/or regions.
+      BucketName: !Join
+        - '-'
+        - - 'pillpack-phi-free-reference-data-deploy'
+          - !Ref AWS::AccountId
+          - !Ref AWS::Region
+      LifecycleConfiguration:
+        Rules:
+          # Delete pipeline artifacts (just source checkouts right now) after
+          # 60 days, the infra source is in GitHub, don't really need to keep
+          # it around here.
+          - Status: Enabled
+            ExpirationInDays: 60
+      Tags:
+      #  - Key: Owner
+      #    Value: !Ref Owner
+        - Key: Project
+          Value: PHI-Free
+        - Key: Team
+          Value: Infrastructure
+
+  PHIFreeRDSSnapshotPipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      ArtifactStore:
+        Type: S3
+        Location: !Ref PHIFreeInfrastructureSourceS3
+      Name: PHI-Free-Reference-Data-RDS-Snapshot-Pipeline
+      RestartExecutionOnUpdate: false
+      RoleArn: !GetAtt PHIFreeRDSSnapshotRolePerRegion.Arn
+      Stages:
+        - Name: GitHubSource
+          Actions:
+            - Name: InfraSourcePull
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Version: '1'
+                Provider: GitHub
+              Configuration:
+                Owner: !Ref GitHubOwner
+                Repo: !Ref GitHubRepo
+                Branch: !Ref GitHubRepoBranch
+                OAuthToken: "{{resolve:secretsmanager:Broadwing/github-pillpack-deploy-bot-token}}"
+                PollForSourceChanges: false
+              OutputArtifacts:
+                - Name: InfraSource
+              RunOrder: 1
+
+        - Name: LaunchUtilityAndRunMigrations
+          Actions:
+            - Name: Deploy
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              Configuration:
+                ProjectName: !Ref PHIFreeReferenceDataTransientDeploy
+              InputArtifacts:
+                - Name: InfraSource
+
+  RDSEncryptionKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: "Encryption key for PHI-Free RDS Snapshots"
+      Enabled: true
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Id: "key-default-1"
+        Statement:
+          # Avoids circular dependency with Dev-Staging-Common.yml -
+          # DevStagingAssumeRolePerRegion in
+          # Dev-Staging-Common will give itself permission to use this key.
+          - Sid: "Enable IAM User Permissions"
+            Effect: "Allow"
+            Principal:
+              AWS: !Sub
+                - "arn:aws:iam::${AccountId}:root"
+                - {AccountId: !Ref 'AWS::AccountId'}
+            Action: "kms:*"
+            Resource: "*"
+          - Sid: "Allow administration of the key"
+            Effect: "Allow"
+            Principal:
+              AWS: !GetAtt PHIFreeRDSSnapshotRolePerRegion.Arn
+            Action:
+              - "kms:Create*"
+              - "kms:Describe*"
+              - "kms:Enable*"
+              - "kms:List*"
+              - "kms:Put*"
+              - "kms:Update*"
+              - "kms:Revoke*"
+              - "kms:Disable*"
+              - "kms:Get*"
+              - "kms:Delete*"
+              - "kms:ScheduleKeyDeletion"
+              - "kms:CancelKeyDeletion"
+            Resource: "*"
+
+            # TODO - Sid: "Allow use of the key by dev-dbs"
+      PendingWindowInDays: 7
+      Tags:
+        - Key: Project
+          Value: PHI-Free
+        - Key: Team
+          Value: Infrastructure
+
+  RDSEncryptionKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: 'alias/PHI-Free-Reference-Data-RDS-Snapshot-Pipeline'
+      TargetKeyId: !Ref RDSEncryptionKey
+
+
+
+...
