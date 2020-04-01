@@ -1,0 +1,9 @@
+Resources:
+  ec2instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-03b5297d565ef30a6
+      InstanceType: t2.micro
+      SecurityGroupIds:
+        - Fn::ImportValue:
+            Fn::Sub: secgrp-SecurityGroup
