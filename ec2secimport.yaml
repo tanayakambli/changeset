@@ -1,3 +1,7 @@
+Parameters:
+  SecGrp:
+    Type: List<AWS::EC2::SecurityGroup::Id>
+
 Resources:
   ec2instance:
     Type: AWS::EC2::Instance
@@ -5,5 +9,4 @@ Resources:
       ImageId: ami-03b5297d565ef30a6
       InstanceType: t2.micro
       SecurityGroupIds:
-        - Fn::ImportValue:
-            Fn::Sub: secgrp-SecurityGroup
+        Ref: SecGrp
