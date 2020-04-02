@@ -1,7 +1,7 @@
 Parameters:
   SecGrp:
-    Type: String
-    Default: abc
+    Type: List<AWS::EC2::SecurityGroup::Id>
+
 Resources:
   ec2instance:
     Type: AWS::EC2::Instance
